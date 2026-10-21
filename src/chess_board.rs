@@ -1,3 +1,153 @@
+use std::fmt;
+
+use crate::chess_board::{ChessErr::*, ChessPiece::*, PieceColor::*};
+
+mod fen;
+
+const BOARD_W: usize = 8;
+const BOARD_H: usize = 8;
+
+#[derive(Copy, Clone, Debug)]
+pub enum ChessPiece {
+    Empty,
+
+    WhitePawn,
+    WhiteKnight,
+    WhiteBishop,
+    WhiteRook,
+    WhiteQueen,
+    WhiteKing,
+
+    BlackPawn,
+    BlackKnight,
+    BlackBishop,
+    BlackRook,
+    BlackQueen,
+    BlackKing,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PieceColor {
+    White = 0,
+    Black = 1,
+}
+
+pub enum CastlingRights {
+    WhiteKing = 0b0001,
+    WhiteQueen = 0b0010,
+    BlackKing = 0b0100,
+    BlackQueen = 0b1000,
+}
+
+#[derive(Debug)]
+pub enum ChessErr {
+    InvalidBoard,
+    SpaceExpected,
+    EOFError,
+    ActiveColorError,
+    CastlingRightError,
+    HalfMovesError,
+    MoveCountError,
+    EnPassantError,
+}
+
+pub struct ChessBoard {
+    tiles: [ChessPiece; BOARD_W * BOARD_H],
+    #[allow(dead_code)]
+    active_color: PieceColor,
+    #[allow(dead_code)]
+    castling_rights: u8,
+    #[allow(dead_code)]
+    half_moves: u16,
+    #[allow(dead_code)]
+    move_count: u16,
+    #[allow(dead_code)]
+    en_passant: isize,
+}
+
+impl ChessPiece {
+    fn from_char(c: char) -> Result<ChessPiece, ChessErr> {
+        Ok(match c {
+            'P' => WhitePawn,
+            'N' => WhiteKnight,
+            'B' => WhiteBishop,
+            'R' => WhiteRook,
+            'Q' => WhiteQueen,
+            'K' => WhiteKing,
+
+            'p' => BlackPawn,
+            'n' => BlackKnight,
+            'b' => BlackBishop,
+            'r' => BlackRook,
+            'q' => BlackQueen,
+            'k' => BlackKing,
+
+            _ => return Err(InvalidBoard),
+        })
+    }
+}
+
+impl CastlingRights {
+    fn from_char(c: char) -> Result<CastlingRights, ChessErr> {
+        Ok(match c {
+            'K' => CastlingRights::WhiteKing,
+            'Q' => CastlingRights::WhiteQueen,
+            'k' => CastlingRights::BlackKing,
+            'q' => CastlingRights::BlackQueen,
+            _ => return Err(CastlingRightError),
+        })
+    }
+}
+
+impl ChessBoard {
+    fn get_by_idx(&self, idx: usize) -> ChessPiece {
+        self.tiles[idx]
+    }
+}
+
+impl fmt::Display for ChessBoard {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for i in 0..BOARD_W * BOARD_H {
+            let piece = self.get_by_idx(i as usize);
+            if i % BOARD_W == BOARD_W - 1 && i != BOARD_W * BOARD_H - 1 {
+                write!(f, " {} \n", piece)?;
+            } else {
+                write!(f, " {} ", piece)?;
+            }
+        }
+
+        // write!(f, "\ncastling_rights = {}\n", self.castling_rights)?;
+        // write!(f, "move_count = {}\n", self.move_count)?;
+        // write!(f, "half_moves = {}\n", self.half_moves)?;
+        // write!(f, "active_color = {}\n", self.active_color as u8)?;
+        // write!(f, "en_passant = {}\n", self.en_passant)?;
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for ChessPiece {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Empty => write!(f, "."),
+
+            WhitePawn => write!(f, "P"),
+            WhiteKnight => write!(f, "N"),
+            WhiteBishop => write!(f, "B"),
+            WhiteRook => write!(f, "R"),
+            WhiteQueen => write!(f, "Q"),
+            WhiteKing => write!(f, "K"),
+
+            BlackPawn => write!(f, "p"),
+            BlackKnight => write!(f, "n"),
+            BlackBishop => write!(f, "b"),
+            BlackRook => write!(f, "r"),
+            BlackQueen => write!(f, "q"),
+            BlackKing => write!(f, "k"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

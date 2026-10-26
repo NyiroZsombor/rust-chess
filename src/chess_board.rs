@@ -1,8 +1,8 @@
-use std::fmt;
+use std::{cmp::min, fmt};
 
 use crate::chess_board::{ChessErr::*, ChessPiece::*, PieceColor::*};
 
-mod fen;
+pub mod fen;
 
 const BOARD_W: usize = 8;
 const BOARD_H: usize = 8;
@@ -39,76 +39,267 @@ pub enum CastlingRights {
     BlackQueen = 0b1000,
 }
 
-#[derive(Debug)]
-pub enum ChessErr {
-    InvalidBoard,
-    SpaceExpected,
-    EOFError,
-    ActiveColorError,
-    CastlingRightError,
-    HalfMovesError,
-    MoveCountError,
-    EnPassantError,
+enum MoveType {
+    LongStraight,
+    LongDiagonal,
+    LongAll,
+    WhiteForward,
+    BlackForward,
+    Single,
+    Knight,
 }
 
+#[derive(Debug)]
+pub enum ChessErr {
+    InvalidMove,
+}
+
+#[allow(dead_code)]
 pub struct ChessBoard {
     tiles: [ChessPiece; BOARD_W * BOARD_H],
-    #[allow(dead_code)]
     active_color: PieceColor,
-    #[allow(dead_code)]
     castling_rights: u8,
-    #[allow(dead_code)]
     half_moves: u16,
-    #[allow(dead_code)]
     move_count: u16,
-    #[allow(dead_code)]
     en_passant: isize,
 }
 
-impl ChessPiece {
-    fn from_char(c: char) -> Result<ChessPiece, ChessErr> {
-        Ok(match c {
-            'P' => WhitePawn,
-            'N' => WhiteKnight,
-            'B' => WhiteBishop,
-            'R' => WhiteRook,
-            'Q' => WhiteQueen,
-            'K' => WhiteKing,
-
-            'p' => BlackPawn,
-            'n' => BlackKnight,
-            'b' => BlackBishop,
-            'r' => BlackRook,
-            'q' => BlackQueen,
-            'k' => BlackKing,
-
-            _ => return Err(InvalidBoard),
-        })
-    }
-}
-
-impl CastlingRights {
-    fn from_char(c: char) -> Result<CastlingRights, ChessErr> {
-        Ok(match c {
-            'K' => CastlingRights::WhiteKing,
-            'Q' => CastlingRights::WhiteQueen,
-            'k' => CastlingRights::BlackKing,
-            'q' => CastlingRights::BlackQueen,
-            _ => return Err(CastlingRightError),
-        })
-    }
-}
-
 impl ChessBoard {
-    fn get_by_idx(&self, idx: usize) -> ChessPiece {
-        self.tiles[idx]
+    fn san_to_idx(&self, m: &str) -> Result<usize, ChessErr> {
+        let m = m.as_bytes();
+        if m[0] < 'a' as u8 || m[0] > 'h' as u8 {
+            // hardcoded board size
+            return Err(InvalidMove);
+        }
+        if m[1] < '1' as u8 || m[1] > '8' as u8 {
+            // hardcoded board size
+            return Err(InvalidMove);
+        }
+
+        let x = (m[0] - 'a' as u8) as usize;
+        let y = (m[1] - '1' as u8) as usize;
+        let y = BOARD_H - y - 1;
+
+        Ok(x + y * BOARD_W)
+    }
+
+    fn get_squares(&self, idx: usize, move_type: MoveType) -> [isize; 64] {
+        let mut moves = [-1_isize; BOARD_W * BOARD_H];
+        let mut moves_count = 0;
+        let mut moves_push = |x| {
+            moves[moves_count] = x as isize;
+            moves_count += 1;
+        };
+
+        match move_type {
+            MoveType::LongStraight => {
+                for i in 1..BOARD_W - idx % BOARD_W {
+                    if let Some(tile) = self.tiles.get(idx + i) {
+                        match tile {
+                            Empty => moves_push(idx + i),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                for i in 1..idx % BOARD_W + 1 {
+                    if let Some(tile) = self.tiles.get(idx - i) {
+                        match tile {
+                            Empty => moves_push(idx - i),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                for i in 1..BOARD_H - idx / BOARD_W {
+                    if let Some(tile) = self.tiles.get(idx + i * BOARD_W) {
+                        match tile {
+                            Empty => moves_push(idx + i * BOARD_W),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                for i in 1..idx / BOARD_W + 1 {
+                    if let Some(tile) = self.tiles.get(idx - i * BOARD_W) {
+                        match tile {
+                            Empty => moves_push(idx - i * BOARD_W),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            MoveType::LongDiagonal => {
+                for i in 1..min(BOARD_W - idx % BOARD_W, BOARD_H - idx / BOARD_W) {
+                    if let Some(tile) = self.tiles.get(idx + i * (BOARD_W + 1)) {
+                        match tile {
+                            Empty => moves_push(idx + i * (BOARD_W + 1)),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                for i in 1..min(idx % BOARD_W + 1, BOARD_H - idx / BOARD_W) {
+                    if let Some(tile) = self.tiles.get(idx + i * (BOARD_W - 1)) {
+                        match tile {
+                            Empty => moves_push(idx + i * (BOARD_W - 1)),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                for i in 1..min(idx % BOARD_W + 1, idx / BOARD_W + 1) {
+                    println!("i={i}, idx={idx}");
+                    if let Some(tile) = self.tiles.get(idx - i * (BOARD_W + 1)) {
+                        match tile {
+                            Empty => moves_push(idx - i * (BOARD_W + 1)),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                for i in 1..min(BOARD_W - idx % BOARD_W, idx / BOARD_W + 1) {
+                    if let Some(tile) = self.tiles.get(idx - i * (BOARD_W - 1)) {
+                        match tile {
+                            Empty => moves_push(idx - i * (BOARD_W - 1)),
+                            _ => break,
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            MoveType::WhiteForward => {
+                if idx / BOARD_W == BOARD_H - 2 {
+                    for i in 0..2 {
+                        if let Empty = self.tiles[idx - BOARD_W * (i + 1)] {
+                            moves[i] = (idx - BOARD_W * (i + 1)) as isize;
+                        } else {
+                            break;
+                        }
+                    }
+                } else if idx >= BOARD_W {
+                    if let Empty = self.tiles[idx - BOARD_W] {
+                        moves[0] = (idx - BOARD_W) as isize;
+                    }
+                }
+            }
+            MoveType::BlackForward => {
+                if idx / BOARD_W == 1 {
+                    for i in 0..2 {
+                        if let Empty = self.tiles[idx + BOARD_W * (i + 1)] {
+                            moves[i] = (idx + BOARD_W * (i + 1)) as isize;
+                        } else {
+                            break;
+                        }
+                    }
+                } else if idx < BOARD_W * (BOARD_H - 1) {
+                    if let Empty = self.tiles[idx + BOARD_W] {
+                        moves[0] = (idx + BOARD_W) as isize;
+                    }
+                }
+            }
+            MoveType::Single => {
+                if idx % BOARD_W > 0 && idx / BOARD_W > 0 {
+                    moves_push(idx - BOARD_W - 1);
+                }
+                if idx % BOARD_W > 0 {
+                    moves_push(idx - 1);
+                }
+                if idx / BOARD_W > 0 {
+                    moves_push(idx - BOARD_W);
+                }
+                if idx % BOARD_W < BOARD_W - 1 && idx / BOARD_W > 0 {
+                    moves_push(idx - BOARD_W + 1);
+                }
+                if idx % BOARD_W < BOARD_W - 1 {
+                    moves_push(idx + 1);
+                }
+                if idx % BOARD_W < BOARD_W - 1 && idx / BOARD_W < BOARD_H - 1 {
+                    moves_push(idx + BOARD_W + 1);
+                }
+                if idx / BOARD_W < BOARD_H - 1 {
+                    moves_push(idx + BOARD_W);
+                }
+                if idx % BOARD_W > 0 && idx / BOARD_W < BOARD_H - 1 {
+                    moves_push(idx + BOARD_W - 1);
+                }
+            }
+            MoveType::Knight => {
+                if let Empty = self.tiles[idx + 2 + 1 * BOARD_W] {
+                    moves_push(idx + 2 + 1 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx - 2 + 1 * BOARD_W] {
+                    moves_push(idx - 2 + 1 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx - 2 - 1 * BOARD_W] {
+                    moves_push(idx - 2 - 1 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx + 2 - 1 * BOARD_W] {
+                    moves_push(idx + 2 - 1 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx + 1 + 2 * BOARD_W] {
+                    moves_push(idx + 1 + 2 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx - 1 + 2 * BOARD_W] {
+                    moves_push(idx - 1 + 2 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx - 1 - 2 * BOARD_W] {
+                    moves_push(idx - 1 - 2 * BOARD_W);
+                }
+                if let Empty = self.tiles[idx + 1 - 2 * BOARD_W] {
+                    moves_push(idx + 1 - 2 * BOARD_W);
+                }
+            }
+            MoveType::LongAll => {
+                let straight = self.get_squares(idx, MoveType::LongStraight);
+                let diagonal = self.get_squares(idx, MoveType::LongDiagonal);
+                for m in straight {
+                    if m == -1 {
+                        break;
+                    }
+                    moves_push(m as usize);
+                }
+                for m in diagonal {
+                    moves_push(m as usize);
+                    if m == -1 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return moves;
+    }
+    // supported only up to board sizes 9x9
+    pub fn make_move(&mut self, m: &str) -> Result<(), ChessErr> {
+        let target = self.san_to_idx(m).unwrap();
+
+        let sqrs = self.get_squares(target, MoveType::LongStraight);
+        for s in sqrs {
+            println!("{s}");
+            if s < 0 {
+                break;
+            }
+            self.tiles[s as usize] = ChessPiece::WhiteKing;
+        }
+        // todo!();
+        Ok(())
     }
 }
 
 impl fmt::Display for ChessBoard {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for i in 0..BOARD_W * BOARD_H {
-            let piece = self.get_by_idx(i as usize);
+            let piece = self.tiles[i];
             if i % BOARD_W == BOARD_W - 1 && i != BOARD_W * BOARD_H - 1 {
                 write!(f, " {} \n", piece)?;
             } else {
@@ -337,6 +528,8 @@ mod tests {
             "8/8/8/8/8/8/8/8 w - - -1 1",
             "8/8/8/8/8/8/8/8 w - - 0 0",
             "8/8/8/8/8/8/8/8 w - - 0",
+            "8/8/8/8/8/8/1P7/8 w KQkq - 0 1",
+            "8/8/8/8/8/8/PPPPPPPPP/8 w KQkq - 0 1",
         ];
 
         for fen in invalid_fens {

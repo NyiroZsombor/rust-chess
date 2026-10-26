@@ -1,14 +1,62 @@
 use crate::chess_board::*;
 
+use FENErr::*;
+
+#[derive(Debug)]
+pub enum FENErr {
+    InvalidBoard,
+    SpaceExpected,
+    EOFError,
+    ActiveColorError,
+    CastlingRightError,
+    HalfMovesError,
+    MoveCountError,
+    EnPassantError,
+}
+
+impl ChessPiece {
+    fn from_char(c: char) -> Result<ChessPiece, FENErr> {
+        Ok(match c {
+            'P' => WhitePawn,
+            'N' => WhiteKnight,
+            'B' => WhiteBishop,
+            'R' => WhiteRook,
+            'Q' => WhiteQueen,
+            'K' => WhiteKing,
+
+            'p' => BlackPawn,
+            'n' => BlackKnight,
+            'b' => BlackBishop,
+            'r' => BlackRook,
+            'q' => BlackQueen,
+            'k' => BlackKing,
+
+            _ => return Err(InvalidBoard),
+        })
+    }
+}
+
+impl CastlingRights {
+    fn from_char(c: char) -> Result<CastlingRights, FENErr> {
+        Ok(match c {
+            'K' => CastlingRights::WhiteKing,
+            'Q' => CastlingRights::WhiteQueen,
+            'k' => CastlingRights::BlackKing,
+            'q' => CastlingRights::BlackQueen,
+            _ => return Err(CastlingRightError),
+        })
+    }
+}
+
 impl ChessBoard {
-    fn expect_space(it: &mut std::str::Chars) -> Result<(), ChessErr> {
+    fn expect_space(it: &mut std::str::Chars) -> Result<(), FENErr> {
         if it.next().ok_or(EOFError)? == ' ' {
             return Ok(());
         }
         Err(SpaceExpected)
     }
 
-    fn gen_active_color(it: &mut std::str::Chars) -> Result<PieceColor, ChessErr> {
+    fn gen_active_color(it: &mut std::str::Chars) -> Result<PieceColor, FENErr> {
         let active_color = match it.next().ok_or(EOFError)? {
             'w' => White,
             'b' => Black,
@@ -19,7 +67,7 @@ impl ChessBoard {
         Ok(active_color)
     }
 
-    fn gen_castling_rights(it: &mut std::str::Chars) -> Result<u8, ChessErr> {
+    fn gen_castling_rights(it: &mut std::str::Chars) -> Result<u8, FENErr> {
         let mut c = it.next().ok_or(EOFError)?;
         let mut castling_rights: u8 = 0;
         if c != '-' {
@@ -33,7 +81,7 @@ impl ChessBoard {
         Ok(castling_rights)
     }
 
-    fn gen_en_passant(it: &mut std::str::Chars) -> Result<isize, ChessErr> {
+    fn gen_en_passant(it: &mut std::str::Chars) -> Result<isize, FENErr> {
         let mut c = it.next().ok_or(EOFError)?;
         if c == '-' {
             ChessBoard::expect_space(it)?;
@@ -62,7 +110,7 @@ impl ChessBoard {
         Ok(en_passant)
     }
 
-    fn gen_half_moves(it: &mut std::str::Chars) -> Result<u16, ChessErr> {
+    fn gen_half_moves(it: &mut std::str::Chars) -> Result<u16, FENErr> {
         let mut half_moves: u16 = 0;
         let mut c = it.next().ok_or(EOFError)?;
         if !c.is_ascii_digit() {
@@ -83,7 +131,7 @@ impl ChessBoard {
         Ok(half_moves)
     }
 
-    fn gen_move_count(it: &mut std::str::Chars) -> Result<u16, ChessErr> {
+    fn gen_move_count(it: &mut std::str::Chars) -> Result<u16, FENErr> {
         let mut move_count: u16 = 0;
         let c = it.next().ok_or(EOFError)?;
         if !c.is_ascii_digit() {
@@ -106,16 +154,13 @@ impl ChessBoard {
         }
     }
 
-    pub fn from_fen(fen: &str) -> Result<ChessBoard, ChessErr> {
+    pub fn from_fen(fen: &str) -> Result<ChessBoard, FENErr> {
         let mut it = fen.chars();
         let mut rank = 0;
         let mut file = 0;
         let mut tiles: [ChessPiece; BOARD_W * BOARD_H] = [Empty; BOARD_W * BOARD_H];
 
         for c in it.by_ref() {
-            if rank == 7 && file == 8 {
-                break;
-            }
             match c {
                 '/' => {
                     rank += 1;
@@ -132,6 +177,9 @@ impl ChessBoard {
                     }
                 }
                 p => {
+                    if file > 7 {
+                        return Err(InvalidBoard);
+                    }
                     let idx = rank * BOARD_W + file;
                     if p.is_ascii_digit() {
                         let num = (p as u8 - '0' as u8) as usize;
@@ -142,6 +190,9 @@ impl ChessBoard {
                             tiles[idx + j] = Empty;
                         }
                         file += num;
+                        if file > BOARD_W {
+                            return Err(InvalidBoard);
+                        }
                     } else {
                         tiles[idx] = ChessPiece::from_char(p)?;
                         file += 1;

@@ -2,10 +2,12 @@ mod chess_board;
 
 use chess_board::*;
 
-fn main() -> Result<(), ChessErr> {
-    let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+fn main() {
+    // let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    let fen = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
 
-    let board = ChessBoard::from_fen(fen)?;
+    let mut board = ChessBoard::from_fen(fen).unwrap();
     println!("{board}");
-    Ok(())
+    let _ = board.make_move("f5").unwrap();
+    println!("{board}");
 }

@@ -41,12 +41,13 @@ fn make_move(board: &mut ChessBoard, color: PieceColor) {
 
 fn main() {
     // let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    // let fen = "1r6/5pp1/RNR1r2p/1r1pP3/1ppkqPP1/7P/1P2B3/2K5 w - - 0 41";
-    let fen = "8/p2ppp2/4P1p1/8/8/3p1P2/P1PPP2P/8 w - - 0 1";
+    let fen = "1r6/5pp1/RNR1r2p/1r1pP3/1ppkqPP1/7P/1P2B3/2K5 w - - 0 41";
+    // let fen = "8/p2ppp2/4P1p1/8/8/3p1P2/P1PPP2P/8 w - - 0 1";
 
     let mut board = ChessBoard::from_fen(fen).unwrap();
     loop {
         make_move(&mut board, PieceColor::White);
+        // println!("check: {}", board.is_check(PieceColor::Black));
         make_move(&mut board, PieceColor::Black);
     }
 }

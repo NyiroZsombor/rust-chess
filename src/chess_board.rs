@@ -49,6 +49,7 @@ pub enum ChessErr {
     InvalidSAN,
     InvalidColor,
     InvalidEmpty,
+    CheckMove,
 }
 
 #[allow(dead_code)]
@@ -83,11 +84,11 @@ impl PieceColor {
 impl ChessBoard {
     fn san_pos_to_idx(&self, m: SAN) -> Result<usize, ChessErr> {
         if m[0] < 'a' as u8 || m[0] > 'h' as u8 {
-            // hardcoded board size
+            // NOTE: hardcoded board size
             return Err(InvalidSAN);
         }
         if m[1] < '1' as u8 || m[1] > '8' as u8 {
-            // hardcoded board size
+            // NOTE: hardcoded board size
             return Err(InvalidSAN);
         }
 
@@ -326,14 +327,61 @@ impl ChessBoard {
         return moves;
     }
 
+    fn is_check(&self, color: PieceColor) -> bool {
+        let king = match color {
+            White => WhiteKing,
+            Black => BlackKing,
+        };
+        let king_idx = match self.tiles.iter().position(|&x| x == king) {
+            Some(idx) => idx,
+            None => {
+                eprintln!("what, no king?");
+                return false;
+            }
+        };
+
+        let move_types: [ChessPiece; 6] = match color {
+            White => [
+                WhitePawn,
+                WhiteKnight,
+                WhiteBishop,
+                WhiteRook,
+                WhiteQueen,
+                WhiteKing,
+            ],
+            Black => [
+                BlackPawn,
+                BlackKnight,
+                BlackBishop,
+                BlackRook,
+                BlackQueen,
+                BlackKing,
+            ],
+        };
+
+        for mt in move_types {
+            let moves = self.get_squares(king_idx, mt);
+            for i in 0..BOARD_W * BOARD_H {
+                if !moves[i] {
+                    continue;
+                }
+
+                if self.tiles[i] as u8 == mt as u8 ^ COLOR_BIT {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     pub fn get_moves(&self, m: SAN, color: PieceColor) -> Result<Moves, ChessErr> {
-        // TODO special moves: en-passant, castling, promotion
-        // supported only up to board sizes 9x9
+        // NOTE: supported only up to board sizes 9x9
+        // TODO: special moves: en-passant, castling, promotion
         let target = self.san_pos_to_idx(m)?;
         if let Empty = self.tiles[target] {
             return Err(InvalidEmpty);
         }
-        println!("{}, {color:?}", self.tiles[target] as u8);
         if self.tiles[target].get_color() != color {
             return Err(InvalidColor);
         }
@@ -342,7 +390,6 @@ impl ChessBoard {
     }
 
     pub fn make_move_coord(&mut self, start: SAN, end: SAN) -> Result<(), ChessErr> {
-        // TODO checks
         let moves = self.get_moves(start, self.active_color)?;
         let start = self.san_pos_to_idx(start)?;
         let end = self.san_pos_to_idx(end)?;
@@ -351,8 +398,14 @@ impl ChessBoard {
             return Err(InvalidMove);
         }
 
+        let captured = self.tiles[end];
         self.tiles[end] = self.tiles[start];
         self.tiles[start] = Empty;
+        if self.is_check(self.active_color) {
+            self.tiles[start] = self.tiles[end];
+            self.tiles[end] = captured;
+            return Err(CheckMove);
+        }
         self.active_color.switch();
         Ok(())
     }

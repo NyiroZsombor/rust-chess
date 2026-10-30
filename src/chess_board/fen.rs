@@ -163,6 +163,9 @@ impl ChessBoard {
         for c in it.by_ref() {
             match c {
                 '/' => {
+                    if file != 8 {
+                        return Err(InvalidBoard);
+                    }
                     rank += 1;
                     file = 0;
                     if rank >= BOARD_H {

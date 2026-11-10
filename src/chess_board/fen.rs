@@ -36,18 +36,6 @@ impl ChessPiece {
     }
 }
 
-impl CastlingRights {
-    fn from_char(c: char) -> Result<CastlingRights, FENErr> {
-        Ok(match c {
-            'K' => CastlingRights::WhiteKing,
-            'Q' => CastlingRights::WhiteQueen,
-            'k' => CastlingRights::BlackKing,
-            'q' => CastlingRights::BlackQueen,
-            _ => return Err(CastlingRightError),
-        })
-    }
-}
-
 impl ChessBoard {
     fn expect_space(it: &mut std::str::Chars) -> Result<(), FENErr> {
         if it.next().ok_or(EOFError)? == ' ' {
@@ -72,7 +60,13 @@ impl ChessBoard {
         let mut castling_rights: u8 = 0;
         if c != '-' {
             while c != ' ' {
-                castling_rights |= CastlingRights::from_char(c)? as u8;
+                castling_rights |= match c {
+                    'K' => WHITE_KINGSIDE,
+                    'Q' => WHITE_QUEENSIDE,
+                    'k' => BLACK_KINGSIDE,
+                    'q' => BLACK_QUEENSIDE,
+                    _ => return Err(CastlingRightError),
+                };
                 c = it.next().ok_or(EOFError)?;
             }
         } else {

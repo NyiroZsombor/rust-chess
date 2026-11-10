@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+use std::ops::{Index, IndexMut};
 use std::{cmp::min, fmt};
 
 use crate::chess_board::{ChessErr::*, ChessPiece::*, PieceColor::*};
@@ -8,8 +10,16 @@ pub const BOARD_W: usize = 8;
 pub const BOARD_H: usize = 8;
 const COLOR_BIT: u8 = 0b0001;
 
-type SAN = [u8; 2];
-type Moves = [bool; BOARD_W * BOARD_H];
+const WHITE_KINGSIDE: u8 = 0b0001;
+const WHITE_QUEENSIDE: u8 = 0b0010;
+const BLACK_KINGSIDE: u8 = 0b0100;
+const BLACK_QUEENSIDE: u8 = 0b1000;
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum PieceColor {
+    White = 0,
+    Black = 1,
+}
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum ChessPiece {
@@ -30,26 +40,22 @@ pub enum ChessPiece {
     BlackKing = 0b1101,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum PieceColor {
-    White = 0,
-    Black = 1,
-}
-
-pub enum CastlingRights {
-    WhiteKing = 0b0001,
-    WhiteQueen = 0b0010,
-    BlackKing = 0b0100,
-    BlackQueen = 0b1000,
-}
-
 #[derive(Debug)]
 pub enum ChessErr {
     InvalidMove,
     InvalidSAN,
     InvalidColor,
-    InvalidEmpty,
+    InvalidCastle,
+    EmptyTile,
     CheckMove,
+}
+
+pub struct Moves([bool; BOARD_W * BOARD_H]);
+
+#[derive(Clone)]
+pub struct SAN {
+    rank: u8,
+    file: u8,
 }
 
 #[allow(dead_code)]
@@ -73,7 +79,7 @@ impl ChessPiece {
 }
 
 impl PieceColor {
-    fn switch(&mut self) {
+    pub fn switch(&mut self) {
         match self {
             White => *self = Black,
             Black => *self = White,
@@ -81,38 +87,76 @@ impl PieceColor {
     }
 }
 
-impl ChessBoard {
-    fn san_pos_to_idx(&self, m: SAN) -> Result<usize, ChessErr> {
+impl Index<usize> for Moves {
+    type Output = bool;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl IndexMut<usize> for Moves {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+impl Moves {
+    pub fn new() -> Moves {
+        Moves {
+            0: [false; BOARD_W * BOARD_H],
+        }
+    }
+}
+
+impl SAN {
+    pub fn new(m: [u8; 2]) -> Result<SAN, ChessErr> {
+        // NOTE: hardcoded board size
+
         if m[0] < 'a' as u8 || m[0] > 'h' as u8 {
-            // NOTE: hardcoded board size
             return Err(InvalidSAN);
         }
         if m[1] < '1' as u8 || m[1] > '8' as u8 {
-            // NOTE: hardcoded board size
             return Err(InvalidSAN);
         }
 
-        let x = (m[0] - 'a' as u8) as usize;
-        let y = (m[1] - '1' as u8) as usize;
-        let y = BOARD_H - y - 1;
+        let file = m[0] - 'a' as u8;
+        let rank = m[1] - '1' as u8;
 
-        Ok(x + y * BOARD_W)
+        Ok(SAN { rank, file })
     }
 
+    pub fn from_input(prompt: &str) -> Result<SAN, ChessErr> {
+        let mut buf = [0_u8; 2];
+        std::io::stdout().write(prompt.as_bytes()).unwrap();
+        std::io::stdout().flush().unwrap();
+        std::io::stdin().read_exact(&mut buf).unwrap();
+        std::io::stdin().read_exact(&mut [0; 1]).unwrap();
+        SAN::new(buf)
+    }
+
+    fn to_idx(&self) -> Result<usize, ChessErr> {
+        let y = BOARD_H - self.rank as usize - 1;
+
+        Ok(self.file as usize + y * BOARD_W)
+    }
+}
+
+impl ChessBoard {
     fn check_continous_tiles(
         &self,
         moves: &mut Moves,
-        idx: usize,
-        end: usize,
-        f: impl Fn(usize, usize) -> usize,
-        move_type: ChessPiece,
+        start: usize,
+        amount: usize,
+        f: impl Fn(usize) -> usize,
     ) {
-        for i in 1..end {
-            let dest = f(idx, i);
+        let color = self.tiles[start].get_color();
+
+        for t in 1..amount {
+            let dest = f(t);
             let tile = self.tiles[dest];
             if tile == Empty {
                 moves[dest] = true;
-            } else if tile.get_color() != move_type.get_color() {
+            } else if tile.get_color() != color {
                 moves[dest] = true;
                 break;
             } else {
@@ -147,8 +191,9 @@ impl ChessBoard {
             moves[i] = true;
         }
     }
+
     fn get_squares(&self, idx: usize, move_type: ChessPiece) -> Moves {
-        let mut moves: Moves = [false; BOARD_W * BOARD_H];
+        let mut moves: Moves = Moves::new();
 
         match move_type {
             WhiteRook | BlackRook => {
@@ -157,32 +202,28 @@ impl ChessBoard {
                     &mut moves,
                     idx,
                     BOARD_W - idx % BOARD_W,
-                    |idx, i| idx + i,
-                    move_type,
+                    |i| idx + i,
                 );
                 self.check_continous_tiles(
                     // left
                     &mut moves,
                     idx,
                     idx % BOARD_W + 1,
-                    |idx, i| idx - i,
-                    move_type,
+                    |i| idx - i,
                 );
                 self.check_continous_tiles(
                     // down
                     &mut moves,
                     idx,
                     BOARD_H - idx / BOARD_W,
-                    |idx, i| idx + i * BOARD_W,
-                    move_type,
+                    |i| idx + i * BOARD_W,
                 );
                 self.check_continous_tiles(
                     // up
                     &mut moves,
                     idx,
                     idx / BOARD_W + 1,
-                    |idx, i| idx - i * BOARD_W,
-                    move_type,
+                    |i| idx - i * BOARD_W,
                 );
             }
             WhiteBishop | BlackBishop => {
@@ -190,32 +231,29 @@ impl ChessBoard {
                     &mut moves,
                     idx,
                     min(BOARD_W - idx % BOARD_W, BOARD_H - idx / BOARD_W),
-                    |idx, i| idx + i * (BOARD_W + 1),
-                    move_type,
+                    |i| idx + i * (BOARD_W + 1),
                 );
                 self.check_continous_tiles(
                     &mut moves,
                     idx,
                     min(idx % BOARD_W + 1, BOARD_H - idx / BOARD_W),
-                    |idx, i| idx + i * (BOARD_W - 1),
-                    move_type,
+                    |i| idx + i * (BOARD_W - 1),
                 );
                 self.check_continous_tiles(
                     &mut moves,
                     idx,
                     min(idx % BOARD_W + 1, idx / BOARD_W + 1),
-                    |idx, i| idx - i * (BOARD_W + 1),
-                    move_type,
+                    |i| idx - i * (BOARD_W + 1),
                 );
                 self.check_continous_tiles(
                     &mut moves,
                     idx,
                     min(BOARD_W - idx % BOARD_W, idx / BOARD_W + 1),
-                    |idx, i| idx - i * (BOARD_W - 1),
-                    move_type,
+                    |i| idx - i * (BOARD_W - 1),
                 );
             }
             WhitePawn => {
+                // TODO: merge pawn moves
                 if idx / BOARD_W == 0 {
                     return moves;
                 }
@@ -375,12 +413,12 @@ impl ChessBoard {
         return false;
     }
 
-    pub fn get_moves(&self, m: SAN, color: PieceColor) -> Result<Moves, ChessErr> {
+    pub fn get_moves(&self, san: &SAN, color: PieceColor) -> Result<Moves, ChessErr> {
         // NOTE: supported only up to board sizes 9x9
-        // TODO: special moves: en-passant, castling, promotion
-        let target = self.san_pos_to_idx(m)?;
+        // TODO: special moves: en-passant, promotion
+        let target = san.to_idx()?;
         if let Empty = self.tiles[target] {
-            return Err(InvalidEmpty);
+            return Err(EmptyTile);
         }
         if self.tiles[target].get_color() != color {
             return Err(InvalidColor);
@@ -390,21 +428,115 @@ impl ChessBoard {
     }
 
     pub fn make_move_coord(&mut self, start: SAN, end: SAN) -> Result<(), ChessErr> {
-        let moves = self.get_moves(start, self.active_color)?;
-        let start = self.san_pos_to_idx(start)?;
-        let end = self.san_pos_to_idx(end)?;
+        let moves = self.get_moves(&start, self.active_color)?;
+        let start = start.to_idx()?;
+        let end = end.to_idx()?;
 
-        if !moves[end] {
-            return Err(InvalidMove);
+        let king_pos = match self.active_color {
+            White => BOARD_W / 2 + BOARD_W * (BOARD_H - 1),
+            Black => BOARD_W / 2,
+        };
+        let king = match self.active_color {
+            White => WhiteKing,
+            Black => BlackKing,
+        };
+
+        let king_rook = king_pos + BOARD_W / 2 - 1;
+        let queen_rook = king_pos - BOARD_W / 2;
+
+        println!("{queen_rook}, {king_rook}");
+
+        if self.tiles[start] == king && (end == king_pos + 2 || end == king_pos - 2) {
+            let right = match self.active_color {
+                White => {
+                    if end == king_pos + 2 {
+                        WHITE_KINGSIDE
+                    } else {
+                        WHITE_QUEENSIDE
+                    }
+                }
+                Black => {
+                    if end == king_pos + 2 {
+                        WHITE_KINGSIDE
+                    } else {
+                        WHITE_QUEENSIDE
+                    }
+                }
+            };
+
+            // home rank is empty
+            if end == king_pos + 2 {
+                for i in king_pos + 1..king_rook - 1 {
+                    if self.tiles[i] != Empty {
+                        return Err(InvalidCastle);
+                    }
+                }
+            } else {
+                for i in queen_rook + 1..king_pos - 1 {
+                    if self.tiles[i] != Empty {
+                        return Err(InvalidCastle);
+                    }
+                }
+            }
+
+            println!("home rank: OK");
+
+            // castling right is valid
+            if self.castling_rights & right == 0 {
+                return Err(InvalidCastle);
+            }
+
+            self.tiles[end] = king;
+            self.tiles[king_pos] = Empty;
+
+            if right == WHITE_KINGSIDE || right == BLACK_KINGSIDE {
+                self.tiles[king_pos + 1] = self.tiles[king_rook];
+                self.tiles[king_rook] = Empty;
+            } else if right == WHITE_QUEENSIDE || right == BLACK_QUEENSIDE {
+                println!("hello?");
+                self.tiles[king_pos - 1] = self.tiles[queen_rook];
+                self.tiles[queen_rook] = Empty;
+            } else {
+                eprintln!("what");
+            }
+        } else {
+            if !moves[end] {
+                return Err(InvalidMove);
+            }
+
+            let captured = self.tiles[end];
+            self.tiles[end] = self.tiles[start];
+            self.tiles[start] = Empty;
+            if self.is_check(self.active_color) {
+                self.tiles[start] = self.tiles[end];
+                self.tiles[end] = captured;
+                return Err(CheckMove);
+            }
         }
 
-        let captured = self.tiles[end];
-        self.tiles[end] = self.tiles[start];
-        self.tiles[start] = Empty;
-        if self.is_check(self.active_color) {
-            self.tiles[start] = self.tiles[end];
-            self.tiles[end] = captured;
-            return Err(CheckMove);
+        match self.active_color {
+            White => {
+                if self.tiles[end] == WhiteKing {
+                    self.castling_rights &= !(WHITE_KINGSIDE | WHITE_QUEENSIDE);
+                } else if self.tiles[end] == WhiteRook {
+                    if start % BOARD_W == BOARD_W - 1 {
+                        self.castling_rights &= !WHITE_KINGSIDE;
+                    } else if start % BOARD_W == 0 {
+                        self.castling_rights &= !WHITE_QUEENSIDE;
+                    }
+                }
+            }
+            Black => {
+                if self.tiles[end] == BlackKing {
+                    self.castling_rights &= !(BLACK_KINGSIDE | BLACK_QUEENSIDE);
+                } else if self.tiles[end] == BlackRook {
+                    if start % BOARD_W == BOARD_W - 1 {
+                        self.castling_rights &= !BLACK_KINGSIDE;
+                    } else if start % BOARD_W == 0 {
+                        self.castling_rights &= !BLACK_QUEENSIDE;
+                    }
+                }
+            }
         }
         self.active_color.switch();
         Ok(())
@@ -428,7 +560,15 @@ impl ChessBoard {
                 White => i % BOARD_W == BOARD_W - 1,
                 Black => i % BOARD_W == 0,
             };
+            let is_start_ln = match color {
+                White => i % BOARD_W == 0,
+                Black => i % BOARD_W == BOARD_W - 1,
+            };
             let piece = self.tiles[i];
+
+            if is_start_ln {
+                print!("{} ", BOARD_W - (i / BOARD_W));
+            }
 
             if selected[i] {
                 match color {
@@ -449,6 +589,10 @@ impl ChessBoard {
             }
         }
 
+        match color {
+            White => println!("   a  b  c  d  e  f  g  h "),
+            Black => println!("   h  g  f  e  d  c  b  a "),
+        }
         println!();
     }
 }

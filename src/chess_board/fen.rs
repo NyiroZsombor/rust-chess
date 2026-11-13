@@ -14,28 +14,6 @@ pub enum FENErr {
     EnPassantError,
 }
 
-impl ChessPiece {
-    fn from_char(c: char) -> Result<ChessPiece, FENErr> {
-        Ok(match c {
-            'P' => WhitePawn,
-            'N' => WhiteKnight,
-            'B' => WhiteBishop,
-            'R' => WhiteRook,
-            'Q' => WhiteQueen,
-            'K' => WhiteKing,
-
-            'p' => BlackPawn,
-            'n' => BlackKnight,
-            'b' => BlackBishop,
-            'r' => BlackRook,
-            'q' => BlackQueen,
-            'k' => BlackKing,
-
-            _ => return Err(InvalidBoard),
-        })
-    }
-}
-
 impl ChessBoard {
     fn expect_space(it: &mut std::str::Chars) -> Result<(), FENErr> {
         if it.next().ok_or(EOFError)? == ' ' {
@@ -191,7 +169,7 @@ impl ChessBoard {
                             return Err(InvalidBoard);
                         }
                     } else {
-                        tiles[idx] = ChessPiece::from_char(p)?;
+                        tiles[idx] = ChessPiece::from_char(p).map_err(|_| InvalidBoard)?;
                         file += 1;
                     }
                 }

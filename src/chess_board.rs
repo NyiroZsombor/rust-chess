@@ -43,16 +43,18 @@ pub enum ChessPiece {
 #[derive(Debug)]
 pub enum ChessErr {
     InvalidMove,
+    InvalidPiece,
+    InvalidPromotion,
     InvalidSAN,
+    IoError,
     InvalidColor,
-    InvalidCastle,
     EmptyTile,
     CheckMove,
 }
 
 pub struct Moves([bool; BOARD_W * BOARD_H]);
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct SAN {
     rank: u8,
     file: u8,
@@ -75,6 +77,39 @@ impl ChessPiece {
         } else {
             Black
         }
+    }
+
+    fn from_char(c: char) -> Result<ChessPiece, ChessErr> {
+        Ok(match c {
+            'P' => WhitePawn,
+            'N' => WhiteKnight,
+            'B' => WhiteBishop,
+            'R' => WhiteRook,
+            'Q' => WhiteQueen,
+            'K' => WhiteKing,
+
+            'p' => BlackPawn,
+            'n' => BlackKnight,
+            'b' => BlackBishop,
+            'r' => BlackRook,
+            'q' => BlackQueen,
+            'k' => BlackKing,
+
+            _ => return Err(InvalidPiece),
+        })
+    }
+
+    pub fn from_input(prompt: &str) -> Result<ChessPiece, ChessErr> {
+        let mut buf = [0_u8; 1];
+        std::io::stdout()
+            .write(prompt.as_bytes())
+            .map_err(|_| IoError)?;
+        std::io::stdout().flush().map_err(|_| IoError)?;
+        std::io::stdin().read_exact(&mut buf).map_err(|_| IoError)?;
+        std::io::stdin()
+            .read_exact(&mut [0; 1])
+            .map_err(|_| IoError)?;
+        ChessPiece::from_char(buf[0] as char)
     }
 }
 
@@ -127,10 +162,14 @@ impl SAN {
 
     pub fn from_input(prompt: &str) -> Result<SAN, ChessErr> {
         let mut buf = [0_u8; 2];
-        std::io::stdout().write(prompt.as_bytes()).unwrap();
-        std::io::stdout().flush().unwrap();
-        std::io::stdin().read_exact(&mut buf).unwrap();
-        std::io::stdin().read_exact(&mut [0; 1]).unwrap();
+        std::io::stdout()
+            .write(prompt.as_bytes())
+            .map_err(|_| IoError)?;
+        std::io::stdout().flush().map_err(|_| IoError)?;
+        std::io::stdin().read_exact(&mut buf).map_err(|_| IoError)?;
+        std::io::stdin()
+            .read_exact(&mut [0; 1])
+            .map_err(|_| IoError)?;
         SAN::new(buf)
     }
 
@@ -452,7 +491,7 @@ impl ChessBoard {
         return false;
     }
 
-    pub fn get_moves(&self, san: &SAN, color: PieceColor) -> Result<Moves, ChessErr> {
+    pub fn get_moves(&self, san: SAN, color: PieceColor) -> Result<Moves, ChessErr> {
         // NOTE: supported only up to board sizes 9x9
         // TODO: special moves: en-passant, promotion
         let target = san.to_idx()?;
@@ -466,10 +505,19 @@ impl ChessBoard {
         Ok(self.get_squares(target, self.tiles[target]))
     }
 
-    pub fn make_move_coord(&mut self, start: SAN, end: SAN) -> Result<(), ChessErr> {
-        let moves = self.get_moves(&start, self.active_color)?;
+    pub fn make_move_coord(
+        &mut self,
+        start: SAN,
+        end: SAN,
+        promotion_callback: impl Fn() -> ChessPiece,
+    ) -> Result<(), ChessErr> {
+        let moves = self.get_moves(start, self.active_color)?;
         let start = start.to_idx()?;
         let end = end.to_idx()?;
+
+        if !moves[end] {
+            return Err(InvalidMove);
+        }
 
         let king_pos = match self.active_color {
             White => BOARD_W / 2 + BOARD_W * (BOARD_H - 1),
@@ -499,17 +547,35 @@ impl ChessBoard {
                 eprintln!("what, weird castling?");
             }
         } else {
-            if !moves[end] {
-                return Err(InvalidMove);
-            }
+            let is_promotion = (self.tiles[start] == WhitePawn || self.tiles[start] == BlackPawn)
+                && (end / BOARD_W == 0 || end / BOARD_W == BOARD_H - 1);
 
-            let captured = self.tiles[end];
-            self.tiles[end] = self.tiles[start];
-            self.tiles[start] = Empty;
-            if self.is_check(self.active_color) {
-                self.tiles[start] = self.tiles[end];
-                self.tiles[end] = captured;
-                return Err(CheckMove);
+            if is_promotion {
+                let piece = promotion_callback();
+                if self.tiles[start].get_color() != piece.get_color() {
+                    return Err(InvalidColor);
+                }
+
+                match piece {
+                    WhitePawn | WhiteKing | BlackPawn | BlackKing | Empty => {
+                        return Err(InvalidPromotion);
+                    }
+                    WhiteKnight | WhiteBishop | WhiteRook | WhiteQueen | BlackKnight
+                    | BlackBishop | BlackRook | BlackQueen => {
+                        self.tiles[start] = Empty;
+                        self.tiles[end] = piece;
+                    }
+                }
+            } else {
+                let captured = self.tiles[end];
+                self.tiles[end] = self.tiles[start];
+                self.tiles[start] = Empty;
+
+                if self.is_check(self.active_color) {
+                    self.tiles[start] = self.tiles[end];
+                    self.tiles[end] = captured;
+                    return Err(CheckMove);
+                }
             }
         }
 

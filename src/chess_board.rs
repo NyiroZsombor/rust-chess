@@ -67,7 +67,7 @@ pub struct ChessBoard {
     castling_rights: u8,
     half_moves: u16,
     move_count: u16,
-    en_passant: isize,
+    en_passant: Option<usize>,
 }
 
 impl ChessPiece {
@@ -336,7 +336,12 @@ impl ChessBoard {
                         Black => idx + BOARD_W - 1,
                     };
                     let tile = self.tiles[target_left];
-                    if tile != Empty && tile.get_color() != move_type.get_color() {
+                    let is_en_passant = match self.en_passant {
+                        Some(en_passant) => en_passant == idx - 1,
+                        None => false,
+                    };
+                    if (tile != Empty && tile.get_color() != move_type.get_color()) || is_en_passant
+                    {
                         moves[target_left] = true;
                     }
                 }
@@ -348,7 +353,12 @@ impl ChessBoard {
                         Black => idx + BOARD_W + 1,
                     };
                     let tile = self.tiles[target_right];
-                    if tile != Empty && tile.get_color() != move_type.get_color() {
+                    let is_en_passant = match self.en_passant {
+                        Some(en_passant) => en_passant == idx + 1,
+                        None => false,
+                    };
+                    if (tile != Empty && tile.get_color() != move_type.get_color()) || is_en_passant
+                    {
                         moves[target_right] = true;
                     }
                 }
@@ -493,7 +503,7 @@ impl ChessBoard {
 
     pub fn get_moves(&self, san: SAN, color: PieceColor) -> Result<Moves, ChessErr> {
         // NOTE: supported only up to board sizes 9x9
-        // TODO: special moves: en-passant, promotion
+        // TODO: special moves: en-passant
         let target = san.to_idx()?;
         if let Empty = self.tiles[target] {
             return Err(EmptyTile);
@@ -529,11 +539,22 @@ impl ChessBoard {
         };
 
         let is_castling = self.tiles[start] == king && (end == king_pos + 2 || end == king_pos - 2);
+        let is_promotion = match self.active_color {
+            White => self.tiles[start] == WhitePawn && end / BOARD_W == 0,
+            Black => self.tiles[start] == BlackPawn && end / BOARD_W == BOARD_H - 1,
+        };
+        let is_en_passant_candidate = match self.active_color {
+            White => self.tiles[start] == WhitePawn && start / BOARD_W == 6 && end / BOARD_W == 4,
+            Black => self.tiles[start] == BlackPawn && start / BOARD_W == 1 && end / BOARD_W == 3,
+        };
+        let is_en_passant_capture = match self.active_color {
+            White => self.tiles[start] == WhitePawn && Some(end + BOARD_W) == self.en_passant,
+            Black => self.tiles[start] == BlackPawn && Some(end - BOARD_W) == self.en_passant,
+        };
 
         if is_castling {
             let king_rook = king_pos + BOARD_W / 2 - 1;
             let queen_rook = king_pos - BOARD_W / 2;
-
             self.tiles[end] = king;
             self.tiles[king_pos] = Empty;
 
@@ -546,41 +567,45 @@ impl ChessBoard {
             } else {
                 eprintln!("what, weird castling?");
             }
-        } else {
-            let is_promotion = (self.tiles[start] == WhitePawn || self.tiles[start] == BlackPawn)
-                && (end / BOARD_W == 0 || end / BOARD_W == BOARD_H - 1);
+        } else if is_promotion {
+            let piece = promotion_callback();
+            if self.tiles[start].get_color() != piece.get_color() {
+                return Err(InvalidColor);
+            }
 
-            if is_promotion {
-                let piece = promotion_callback();
-                if self.tiles[start].get_color() != piece.get_color() {
-                    return Err(InvalidColor);
+            match piece {
+                WhitePawn | WhiteKing | BlackPawn | BlackKing | Empty => {
+                    return Err(InvalidPromotion);
                 }
-
-                match piece {
-                    WhitePawn | WhiteKing | BlackPawn | BlackKing | Empty => {
-                        return Err(InvalidPromotion);
-                    }
-                    WhiteKnight | WhiteBishop | WhiteRook | WhiteQueen | BlackKnight
-                    | BlackBishop | BlackRook | BlackQueen => {
-                        self.tiles[start] = Empty;
-                        self.tiles[end] = piece;
-                    }
-                }
-            } else {
-                let captured = self.tiles[end];
-                self.tiles[end] = self.tiles[start];
-                self.tiles[start] = Empty;
-
-                if self.is_check(self.active_color) {
-                    self.tiles[start] = self.tiles[end];
-                    self.tiles[end] = captured;
-                    return Err(CheckMove);
+                WhiteKnight | WhiteBishop | WhiteRook | WhiteQueen | BlackKnight | BlackBishop
+                | BlackRook | BlackQueen => {
+                    self.tiles[start] = Empty;
+                    self.tiles[end] = piece;
                 }
             }
+        } else {
+            let captured = self.tiles[end];
+            self.tiles[end] = self.tiles[start];
+            self.tiles[start] = Empty;
+
+            if self.is_check(self.active_color) {
+                self.tiles[start] = self.tiles[end];
+                self.tiles[end] = captured;
+                return Err(CheckMove);
+            }
+        }
+
+        if is_en_passant_candidate {
+            self.en_passant = Some(end);
+        } else {
+            self.en_passant = None;
         }
 
         match self.active_color {
             White => {
+                if is_en_passant_capture {
+                    self.tiles[end + BOARD_W] = Empty;
+                }
                 if self.tiles[end] == WhiteKing {
                     self.castling_rights &= !(WHITE_KINGSIDE | WHITE_QUEENSIDE);
                 } else if self.tiles[end] == WhiteRook {
@@ -592,6 +617,9 @@ impl ChessBoard {
                 }
             }
             Black => {
+                if is_en_passant_capture {
+                    self.tiles[end - BOARD_W] = Empty;
+                }
                 if self.tiles[end] == BlackKing {
                     self.castling_rights &= !(BLACK_KINGSIDE | BLACK_QUEENSIDE);
                 } else if self.tiles[end] == BlackRook {

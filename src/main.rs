@@ -28,6 +28,7 @@ fn main() {
     let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"; // starting FEN
     // let fen = "r3k2r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"; // black castling
     // let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3K2R w KQkq - 0 1"; // white castling
+    // let fen = "rnbqkbnr/pppppp1p/8/1P6/6p1/8/P1PPPPPP/RNBQKBNR b KQkq - 0 1"; // en-passant
     // let fen = "1r6/5ppP/RNR1r2p/1r1pP3/1ppkqPP1/7P/1P2B3/2K5 w - - 0 41";
     // let fen = "8/p2ppp2/4P1p1/8/8/3p1P2/P1PPP2P/8 w - - 0 1";
 

@@ -53,11 +53,11 @@ impl ChessBoard {
         Ok(castling_rights)
     }
 
-    fn gen_en_passant(it: &mut std::str::Chars) -> Result<isize, FENErr> {
+    fn gen_en_passant(it: &mut std::str::Chars) -> Result<Option<usize>, FENErr> {
         let mut c = it.next().ok_or(EOFError)?;
         if c == '-' {
             ChessBoard::expect_space(it)?;
-            return Ok(-1);
+            return Ok(None);
         }
 
         // supported only up to board sizes 24x9
@@ -76,10 +76,10 @@ impl ChessBoard {
         if file as usize >= BOARD_W {
             return Err(EnPassantError);
         }
-        let en_passant = (file * BOARD_W as u8 + rank) as isize;
+        let en_passant = file as usize * BOARD_W + rank as usize;
 
         ChessBoard::expect_space(it)?;
-        Ok(en_passant)
+        Ok(Some(en_passant))
     }
 
     fn gen_half_moves(it: &mut std::str::Chars) -> Result<u16, FENErr> {

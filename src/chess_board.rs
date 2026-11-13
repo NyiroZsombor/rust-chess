@@ -61,7 +61,7 @@ pub struct SAN {
 #[allow(dead_code)]
 pub struct ChessBoard {
     tiles: [ChessPiece; BOARD_W * BOARD_H],
-    active_color: PieceColor,
+    pub active_color: PieceColor,
     castling_rights: u8,
     half_moves: u16,
     move_count: u16,
@@ -252,80 +252,119 @@ impl ChessBoard {
                     |i| idx - i * (BOARD_W - 1),
                 );
             }
-            WhitePawn => {
-                // TODO: merge pawn moves
-                if idx / BOARD_W == 0 {
+            WhitePawn | BlackPawn => {
+                let is_end_rank = match move_type.get_color() {
+                    White => idx / BOARD_W == 0,
+                    Black => idx / BOARD_W == BOARD_H - 1,
+                };
+
+                if is_end_rank {
                     return moves;
                 }
-                if idx / BOARD_W == BOARD_H - 2 {
-                    // double move
+
+                let is_double_move = match move_type.get_color() {
+                    White => idx / BOARD_W == BOARD_H - 2,
+                    Black => idx / BOARD_W == 1,
+                };
+
+                if is_double_move {
                     for i in 0..2 {
-                        if let Empty = self.tiles[idx - BOARD_W * (i + 1)] {
-                            moves[idx - BOARD_W * (i + 1)] = true;
+                        let target = match move_type.get_color() {
+                            White => idx - BOARD_W * (i + 1),
+                            Black => idx + BOARD_W * (i + 1),
+                        };
+                        if let Empty = self.tiles[target] {
+                            moves[target] = true;
                         } else {
                             break;
                         }
                     }
                 } else if idx >= BOARD_W {
+                    let target = match move_type.get_color() {
+                        White => idx - BOARD_W,
+                        Black => idx + BOARD_W,
+                    };
                     // single move
-                    if let Empty = self.tiles[idx - BOARD_W] {
-                        moves[idx - BOARD_W] = true;
+                    if let Empty = self.tiles[target] {
+                        moves[target] = true;
                     }
                 }
 
                 // capture left
                 if idx % BOARD_W > 0 {
-                    let tile = self.tiles[idx - BOARD_W - 1];
+                    let target_left = match move_type.get_color() {
+                        White => idx - BOARD_W - 1,
+                        Black => idx + BOARD_W - 1,
+                    };
+                    let tile = self.tiles[target_left];
                     if tile != Empty && tile.get_color() != move_type.get_color() {
-                        moves[idx - BOARD_W - 1] = true;
+                        moves[target_left] = true;
                     }
                 }
 
                 // capture right
                 if idx % BOARD_W < BOARD_W - 1 {
-                    let tile = self.tiles[idx - BOARD_W + 1];
+                    let target_right = match move_type.get_color() {
+                        White => idx - BOARD_W + 1,
+                        Black => idx + BOARD_W + 1,
+                    };
+                    let tile = self.tiles[target_right];
                     if tile != Empty && tile.get_color() != move_type.get_color() {
-                        moves[idx - BOARD_W + 1] = true;
-                    }
-                }
-            }
-            BlackPawn => {
-                if idx / BOARD_W == BOARD_H - 1 {
-                    return moves;
-                }
-                if idx / BOARD_W == 1 {
-                    // double move
-                    for i in 0..2 {
-                        if let Empty = self.tiles[idx + BOARD_W * (i + 1)] {
-                            moves[idx + BOARD_W * (i + 1)] = true;
-                        } else {
-                            break;
-                        }
-                    }
-                } else if idx < BOARD_W * (BOARD_H - 1) {
-                    // single move
-                    if let Empty = self.tiles[idx + BOARD_W] {
-                        moves[idx + BOARD_W] = true;
-                    }
-                }
-
-                // capture left
-                if idx % BOARD_W > 0 {
-                    let tile = self.tiles[idx + BOARD_W - 1];
-                    if tile != Empty && tile.get_color() != move_type.get_color() {
-                        moves[idx + BOARD_W - 1] = true;
-                    }
-                }
-
-                // capture right
-                if idx % BOARD_W < BOARD_W - 1 {
-                    let tile = self.tiles[idx + BOARD_W + 1];
-                    if tile != Empty && tile.get_color() != move_type.get_color() {
-                        moves[idx + BOARD_W + 1] = true;
+                        moves[target_right] = true;
                     }
                 }
             }
             WhiteKing | BlackKing => {
+                let king_pos = match move_type.get_color() {
+                    White => BOARD_W / 2 + BOARD_W * (BOARD_H - 1),
+                    Black => BOARD_W / 2,
+                };
+                let king_rook = king_pos + BOARD_W / 2 - 1;
+                let queen_rook = king_pos - BOARD_W / 2;
+                let mut can_queenside_castle = true;
+                let mut can_kingside_castle = true;
+
+                // home rank is empty
+                for i in king_pos + 1..king_rook - 1 {
+                    if self.tiles[i] != Empty {
+                        can_kingside_castle = false;
+                        break;
+                    }
+                }
+                for i in queen_rook + 1..king_pos - 1 {
+                    if self.tiles[i] != Empty {
+                        can_queenside_castle = false;
+                        break;
+                    }
+                }
+
+                // castling right is valid
+                match move_type.get_color() {
+                    White => {
+                        if self.castling_rights & WHITE_KINGSIDE == 0 {
+                            can_kingside_castle = false;
+                        }
+                        if self.castling_rights & WHITE_QUEENSIDE == 0 {
+                            can_queenside_castle = false;
+                        }
+                    }
+                    Black => {
+                        if self.castling_rights & BLACK_KINGSIDE == 0 {
+                            can_kingside_castle = false;
+                        }
+                        if self.castling_rights & BLACK_QUEENSIDE == 0 {
+                            can_queenside_castle = false;
+                        }
+                    }
+                }
+
+                if can_kingside_castle {
+                    moves[idx + 2] = true;
+                }
+                if can_queenside_castle {
+                    moves[idx - 2] = true;
+                }
+
                 self.check_jump_tile(&mut moves, idx, (1, 0), move_type);
                 self.check_jump_tile(&mut moves, idx, (1, 1), move_type);
                 self.check_jump_tile(&mut moves, idx, (0, 1), move_type);
@@ -441,63 +480,23 @@ impl ChessBoard {
             Black => BlackKing,
         };
 
-        let king_rook = king_pos + BOARD_W / 2 - 1;
-        let queen_rook = king_pos - BOARD_W / 2;
+        let is_castling = self.tiles[start] == king && (end == king_pos + 2 || end == king_pos - 2);
 
-        println!("{queen_rook}, {king_rook}");
-
-        if self.tiles[start] == king && (end == king_pos + 2 || end == king_pos - 2) {
-            let right = match self.active_color {
-                White => {
-                    if end == king_pos + 2 {
-                        WHITE_KINGSIDE
-                    } else {
-                        WHITE_QUEENSIDE
-                    }
-                }
-                Black => {
-                    if end == king_pos + 2 {
-                        WHITE_KINGSIDE
-                    } else {
-                        WHITE_QUEENSIDE
-                    }
-                }
-            };
-
-            // home rank is empty
-            if end == king_pos + 2 {
-                for i in king_pos + 1..king_rook - 1 {
-                    if self.tiles[i] != Empty {
-                        return Err(InvalidCastle);
-                    }
-                }
-            } else {
-                for i in queen_rook + 1..king_pos - 1 {
-                    if self.tiles[i] != Empty {
-                        return Err(InvalidCastle);
-                    }
-                }
-            }
-
-            println!("home rank: OK");
-
-            // castling right is valid
-            if self.castling_rights & right == 0 {
-                return Err(InvalidCastle);
-            }
+        if is_castling {
+            let king_rook = king_pos + BOARD_W / 2 - 1;
+            let queen_rook = king_pos - BOARD_W / 2;
 
             self.tiles[end] = king;
             self.tiles[king_pos] = Empty;
 
-            if right == WHITE_KINGSIDE || right == BLACK_KINGSIDE {
+            if end == king_pos + 2 {
                 self.tiles[king_pos + 1] = self.tiles[king_rook];
                 self.tiles[king_rook] = Empty;
-            } else if right == WHITE_QUEENSIDE || right == BLACK_QUEENSIDE {
-                println!("hello?");
+            } else if end == king_pos - 2 {
                 self.tiles[king_pos - 1] = self.tiles[queen_rook];
                 self.tiles[queen_rook] = Empty;
             } else {
-                eprintln!("what");
+                eprintln!("what, weird castling?");
             }
         } else {
             if !moves[end] {
